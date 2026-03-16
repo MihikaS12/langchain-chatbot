@@ -4,9 +4,10 @@ A highly capable, professional, and friendly conversational AI assistant built w
 
 ## Features ✨
 
-- **Llama 3 Powered**: Utilizing the `llama-3.1-8b-instant` model for fast and intelligent responses.
-- **Conversational Memory**: The chatbot remembers previous parts of the conversation to provide contextual answers.
-- **Interactive UI**: A clean, easy-to-use chat interface built entirely with Streamlit.
+- **LangGraph Architecture**: Built with a modular `StateGraph` for professional AI workflow management.
+- **Robust State Management**: Uses a formal `State` TypedDict and the `add_messages` reducer for reliable, additive conversational memory.
+- **Llama 3 Powered**: Utilizing the `llama-3.1-8b-instant` model for high-speed, intelligent responses.
+- **Interactive UI**: A sleek chat interface built with Streamlit.
 
 ## Setup Instructions 🚀
 
