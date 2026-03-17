@@ -1,82 +1,110 @@
 import streamlit as st
-import os
-from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, AIMessage
+from graph import app_graph
 
-# --- LangChain & LangGraph Imports ---
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
-from langgraph.graph import StateGraph, START, END
-from typing import Annotated, TypedDict, List
-from langgraph.graph.message import add_messages
-
-# 1. Load environment variables
-load_dotenv()
-
-# --- LANGGRAPH CORE LOGIC ---
-
-# 2. DEFINE THE STATE
-class State(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
-
-# 3. DEFINE THE CHAT NODE
-def chat_node(state: State):
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a highly capable, professional, and friendly AI assistant. You provide clear, well-structured, and helpful answers."),
-        MessagesPlaceholder(variable_name="messages"),
-    ])
-    llm = ChatGroq(model="llama-3.1-8b-instant")
-    chain = prompt | llm
-    response = chain.invoke({"messages": state["messages"]})
-    return {"messages": [response]}
-
-# 4. BUILD THE GRAPH
-workflow = StateGraph(State)
-workflow.add_node("chat", chat_node)
-workflow.add_edge(START, "chat")
-workflow.add_edge("chat", END)
-app_graph = workflow.compile()
-
-# --- STREAMLIT UI SETUP ---
-st.set_page_config(page_title="Smart AI Assistant", page_icon="✨")
+# ─────────────────────────────────────────
+# PAGE SETUP
+# ─────────────────────────────────────────
+st.set_page_config(page_title="Smart AI Assistant", page_icon="✨", layout="centered")
 st.title("✨ Smart AI Assistant")
-st.caption("A professional conversational agent powered by LangGraph & Groq")
 
-# INITIALIZE SESSION STATE
+# ─────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Display messages from session state
+# ─────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────
+st.sidebar.title("🛠️ AI Toolbox")
+st.sidebar.markdown("Switch tools on or off below.")
+use_search = st.sidebar.checkbox("🌐 Web Search", value=False,
+                                  help="Search the internet for latest news, weather, facts.")
+use_wiki   = st.sidebar.checkbox("📚 Wikipedia", value=False,
+                                  help="Look up any topic, person, or place.")
+use_calc   = st.sidebar.checkbox("🔢 Calculator", value=False,
+                                  help="Perform any math calculation accurately.")
+
+st.sidebar.markdown("---")
+
+if st.sidebar.button("🧹 Clear Chat"):
+    st.session_state.chat_history = []
+    st.rerun()
+
+# ─────────────────────────────────────────
+# DISPLAY CHAT HISTORY
+# ─────────────────────────────────────────
+TOOL_TAGS = ["<google_search>", "<wikipedia_search>", "<calculator>",
+             "<function", "function=", "</function>"]
+TOOL_NAMES = {"google_search", "web_search", "wikipedia_search",
+              "calculator", "get_current_time"}
+
+def is_internal_message(msg: AIMessage) -> bool:
+    """Returns True if this message should be hidden from the user."""
+    # Has structured tool calls
+    if msg.tool_calls:
+        return True
+    content = msg.content.strip()
+    # Empty
+    if not content:
+        return True
+    # Contains raw tool XML tags
+    if any(tag in content for tag in TOOL_TAGS):
+        return True
+    # Is just a bare tool name
+    if content.lower() in TOOL_NAMES:
+        return True
+    return False
+
 for message in st.session_state.chat_history:
     if isinstance(message, HumanMessage):
         with st.chat_message("user"):
             st.markdown(message.content)
     elif isinstance(message, AIMessage):
-        with st.chat_message("assistant"):
-            st.markdown(message.content)
+        if not is_internal_message(message):
+            with st.chat_message("assistant"):
+                st.markdown(message.content)
 
+# ─────────────────────────────────────────
 # CHAT INPUT
-user_input = st.chat_input("How can I help you today?")
+# ─────────────────────────────────────────
+user_input = st.chat_input("Ask me anything...")
 
 if user_input:
-    # 1. Show user message
+    # Show user message immediately
     with st.chat_message("user"):
         st.markdown(user_input)
-    
-    # 2. Add to local history
-    input_message = HumanMessage(content=user_input)
-    st.session_state.chat_history.append(input_message)
-    
-    # 3. Get AI response
+
+    st.session_state.chat_history.append(HumanMessage(content=user_input))
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            # Run the graph with the current history
-            output = app_graph.invoke({"messages": st.session_state.chat_history})
-            
-            # The last message in the output is the AI's response
-            ai_response = output["messages"][-1]
-            st.markdown(ai_response.content)
-            
-            # 4. Save AI response to history
-            st.session_state.chat_history.append(ai_response)
+            try:
+                output = app_graph.invoke({
+                    "messages": st.session_state.chat_history,
+                    "use_search": use_search,
+                    "use_wiki":   use_wiki,
+                    "use_calc":   use_calc,
+                })
 
+                # Get the last meaningful (non-tool-call) AI message
+                final_response = ""
+                for msg in reversed(output["messages"]):
+                    if isinstance(msg, AIMessage) and not is_internal_message(msg):
+                        final_response = msg.content
+                        break
+
+                if final_response:
+                    st.markdown(final_response)
+                    st.session_state.chat_history.append(AIMessage(content=final_response))
+                else:
+                    fallback = "I processed your request. Please try asking again if you need more details."
+                    st.markdown(fallback)
+                    st.session_state.chat_history.append(AIMessage(content=fallback))
+
+            except Exception as e:
+                print(f"[Internal Error]: {e}")
+                friendly = "I'm sorry, I ran into a small hiccup. Please try asking again!"
+                st.markdown(friendly)
+                st.session_state.chat_history.append(AIMessage(content=friendly))

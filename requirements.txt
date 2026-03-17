@@ -3,3 +3,7 @@ python-dotenv
 langchain-groq
 langchain-core
 langgraph
+langchain-community
+duckduckgo-search
+wikipedia
+pytz
